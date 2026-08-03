@@ -1,16 +1,30 @@
-# React + Vite
+# Lead Qualifier Agent
 
-This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
+A standalone Vite + React demo for a lead qualification agent that captures incoming DMs, scores intent, and shows a live lead board.
 
-Currently, two official plugins are available:
+## What this demo shows
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- A realistic inbound lead intake experience
+- Qualification scoring for intent, urgency, and fit
+- Auto-generated reply suggestions for the next step
+- Export and CRM action stubs for a sales workflow
+- Local persistence so the demo state stays intact after refresh
 
-## React Compiler
+## Demo flow
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Open the app and review the incoming lead queue.
+2. Select a lead to inspect its score and qualification summary.
+3. Use the generated reply and CRM actions to show how the workflow would progress.
 
-## Expanding the Oxlint configuration
+## Run locally
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and Oxlint's TypeScript related rules in your project.
+```bash
+npm install
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+```

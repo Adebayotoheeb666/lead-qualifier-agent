@@ -1,5 +1,5 @@
 /**
- * data.js — Seed data and AI extraction logic for LeadBot AI demo.
+ * data.js — Seed data and AI extraction logic for the Lead Qualifier Agent demo.
  */
 
 /* ── Avatar colours ── */
@@ -104,6 +104,49 @@ export function conversionRate(leads) {
   if (!leads.length) return 0;
   const hot = leads.filter(l => l.intent === 'hot').length;
   return Math.round((hot / leads.length) * 100);
+}
+
+export function qualifyLead(text, intent = scoreIntent(text || '')) {
+  const lower = (text || '').toLowerCase();
+  let score = intent === 'hot' ? 84 : intent === 'warm' ? 63 : 38;
+  let reason = intent === 'hot'
+    ? 'Strong buying intent with clear action language.'
+    : intent === 'warm'
+      ? 'Shows interest, but needs a nudge to convert.'
+      : 'Low urgency, best kept in a nurture flow.';
+  let route = intent === 'hot'
+    ? 'Sales rep queue'
+    : intent === 'warm'
+      ? 'Nurture sequence'
+      : 'Low-priority archive';
+  let nextAction = intent === 'hot'
+    ? 'Call within 30 minutes and send pricing options.'
+    : intent === 'warm'
+      ? 'Share a case study and follow up in 3 days.'
+      : 'Keep in nurture and re-engage later.';
+
+  const followUp = intent === 'hot'
+    ? ['Send a calendar link', 'Create a CRM task', 'Notify the sales team']
+    : intent === 'warm'
+      ? ['Share a relevant case study', 'Add to nurture list', 'Follow up in 3 days']
+      : ['Tag as cold', 'Keep in nurture pool', 'Re-engage only if they return'];
+
+  if (lower.includes('ready') || lower.includes('buy') || lower.includes('book') || lower.includes('urgent')) score += 8;
+  if (lower.includes('price') || lower.includes('cost') || lower.includes('how much')) score += 5;
+  if (lower.includes('interested') || lower.includes('curious')) score += 4;
+
+  score = Math.min(100, score);
+  if (score >= 85) {
+    reason = 'High-intent lead with a clear buying signal.';
+    route = 'Immediate sales handoff';
+    nextAction = 'Call immediately and send a tailored offer.';
+  } else if (score >= 60) {
+    reason = 'Promising lead that needs a short nurture sequence.';
+    route = 'Sales nurture';
+    nextAction = 'Send a case study and offer a discovery call.';
+  }
+
+  return { score, reason, route, nextAction, followUp };
 }
 
 /* ── Sheet columns ── */

@@ -246,6 +246,54 @@ body::before {
 .lead-name-cell { font-weight: 600; }
 .lead-contact  { font-size: .78rem; color: var(--text-2); margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
 
+/* ── Qualification panel ── */
+.qualification-panel { display: flex; flex-direction: column; gap: 16px; }
+.qualification-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.qualification-card {
+  background: var(--bg-row); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 18px; min-height: 140px;
+}
+.mini-label {
+  font-size: .72rem; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--text-2); margin-bottom: 8px;
+}
+.score-value {
+  font-size: 2rem; font-weight: 900; color: var(--cyan); margin-bottom: 8px;
+}
+.route-value {
+  font-size: 1rem; font-weight: 700; color: var(--green); margin-bottom: 8px;
+}
+.mini-text {
+  font-size: .86rem; color: var(--text-2); line-height: 1.6;
+}
+.automation-list { display: flex; flex-direction: column; gap: 8px; }
+.automation-item {
+  padding: 10px 12px; border-radius: 10px; background: rgba(0,212,255,.08);
+  border: 1px solid rgba(0,212,255,.16); color: var(--text);
+  font-size: .88rem;
+}
+.qualification-placeholder {
+  border: 1px dashed var(--border-cyan); border-radius: var(--radius);
+  padding: 20px; background: rgba(0,212,255,.04);
+}
+.lead-detail-grid {
+  display: grid;
+  gap: 24px;
+  grid-template-columns: 1.9fr 1fr;
+}
+.lead-action-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 18px;
+}
+.btn-block {
+  width: 100%;
+}
+.selected-row td {
+  background: rgba(0,212,255,.08);
+}
+
 /* ── Sheets mock ── */
 .sheets-header {
   display: flex; align-items: center; gap: 10px; padding: 12px 16px;

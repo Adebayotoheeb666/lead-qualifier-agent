@@ -2,8 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   SEED_DMS, DEMO_DMS, SHEET_COLS, AVATAR_COLORS,
   avatarColor, initials, scoreIntent, highlightKeywords,
-  buildAutoReply, extractLead, leadToRow, conversionRate, nowTime,
+  buildAutoReply, extractLead, leadToRow, conversionRate, qualifyLead, nowTime,
 } from './data.js';
+import { exportLeadToCSV, pushLeadToCRM } from './utils/exportCsv.js';
 
 /* ─── Toasts ─── */
 function useToasts() {
@@ -122,7 +123,7 @@ function SheetsMock({ rows }) {
 }
 
 /* ─── Leads Table ─── */
-function LeadsTable({ leads }) {
+function LeadsTable({ leads, selectedLeadId, onSelect }) {
   return (
     <div style={{ overflowX: 'auto' }}>
       <table className="leads-table">
@@ -136,25 +137,65 @@ function LeadsTable({ leads }) {
           </tr>
         </thead>
         <tbody>
-          {leads.map((l, i) => (
-            <tr key={l.id} className={i === 0 && leads.length > SEED_DMS.length ? 'new-row' : ''}>
-              <td>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <Avatar name={l.name} size={32} />
-                  <div>
-                    <div className="lead-name-cell">{l.name}</div>
-                    {l.contact && <div className="lead-contact">{l.contact}</div>}
+          {leads.map((l, i) => {
+            const isSelected = l.id === selectedLeadId;
+            return (
+              <tr
+                key={l.id}
+                className={`${i === 0 && leads.length > SEED_DMS.length ? 'new-row' : ''}${isSelected ? ' selected-row' : ''}`}
+                onClick={() => onSelect(l.id)}
+              >
+                <td>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                    <Avatar name={l.name} size={32} />
+                    <div>
+                      <div className="lead-name-cell">{l.name}</div>
+                      {l.contact && <div className="lead-contact">{l.contact}</div>}
+                    </div>
                   </div>
-                </div>
-              </td>
-              <td><span className={`dm-platform ${l.platform}`}>{l.platform === 'ig' ? 'Instagram' : 'Twitter/X'}</span></td>
-              <td><IntentBadge intent={l.intent} /></td>
-              <td className="text-muted mono" style={{ fontSize: '.78rem' }}>{l.contact || '—'}</td>
-              <td className="text-muted mono" style={{ fontSize: '.78rem' }}>{l.time}</td>
-            </tr>
-          ))}
+                </td>
+                <td><span className={`dm-platform ${l.platform}`}>{l.platform === 'ig' ? 'Instagram' : 'Twitter/X'}</span></td>
+                <td><IntentBadge intent={l.intent} /></td>
+                <td className="text-muted mono" style={{ fontSize: '.78rem' }}>{l.contact || '—'}</td>
+                <td className="text-muted mono" style={{ fontSize: '.78rem' }}>{l.time}</td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function QualificationPanel({ lead }) {
+  if (!lead) {
+    return (
+      <div className="qualification-placeholder">
+        <div className="section-title">🧠 Qualification engine</div>
+        <p className="text-muted">Run a demo DM to see how the agent scores intent, routes the lead, and suggests the next action.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="qualification-panel">
+      <div className="qualification-grid">
+        <div className="qualification-card">
+          <div className="mini-label">Qualification Score</div>
+          <div className="score-value">{lead.score}/100</div>
+          <div className="mini-text">{lead.qualificationReason}</div>
+        </div>
+        <div className="qualification-card">
+          <div className="mini-label">Route</div>
+          <div className="route-value">{lead.route}</div>
+          <div className="mini-text">{lead.nextAction}</div>
+        </div>
+      </div>
+      <div className="automation-list">
+        {lead.followUp.map((item, idx) => (
+          <div key={idx} className="automation-item">▶ {item}</div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -168,6 +209,7 @@ export default function App() {
   const [dms, setDms]               = useState(SEED_DMS);
   const [leads, setLeads]           = useState(INIT_LEADS);
   const [sheetRows, setSheetRows]   = useState(INIT_LEADS.map(leadToRow));
+  const [selectedLeadId, setSelectedLeadId] = useState(INIT_LEADS[0]?.id || null);
   const [processing, setProcessing] = useState(false);
   const [lastReply, setLastReply]   = useState(null);
   const [simText, setSimText]       = useState('');
@@ -181,11 +223,37 @@ export default function App() {
   const counterTarget = leads.length + 9; // offset to look "busy"
 
   useEffect(() => {
-    const saved = localStorage.getItem('leadbot_key');
-    if (saved) setApiKey(saved);
+    const savedKey = localStorage.getItem('leadqualifier_key');
+    if (savedKey) setApiKey(savedKey);
+
+    const savedState = localStorage.getItem('leadqualifier_state');
+    if (savedState) {
+      try {
+        const parsed = JSON.parse(savedState);
+        if (parsed.dms?.length) setDms(parsed.dms);
+        if (parsed.leads?.length) {
+          setLeads(parsed.leads);
+          setSheetRows(parsed.leads.map(leadToRow));
+          setSelectedLeadId(parsed.selectedLeadId || parsed.leads[0]?.id);
+        }
+        if (typeof parsed.demoIdx === 'number') setDemoIdx(parsed.demoIdx);
+      } catch (err) {
+        console.warn('Failed to load saved lead qualifier state', err);
+      }
+    }
   }, []);
 
-  const saveKey = (k) => { setApiKey(k); k ? localStorage.setItem('leadbot_key', k) : localStorage.removeItem('leadbot_key'); };
+  useEffect(() => {
+    setSheetRows(leads.map(leadToRow));
+    localStorage.setItem('leadqualifier_state', JSON.stringify({
+      dms,
+      leads,
+      selectedLeadId,
+      demoIdx,
+    }));
+  }, [dms, leads, selectedLeadId, demoIdx]);
+
+  const saveKey = (k) => { setApiKey(k); k ? localStorage.setItem('leadqualifier_key', k) : localStorage.removeItem('leadqualifier_key'); };
 
   /* scroll DM feed to bottom */
   const scrollFeed = () => {
@@ -204,11 +272,22 @@ export default function App() {
 
     const extracted = await extractLead(text, name, apiKey);
     const intent = extracted.intent || scoreIntent(text);
-    const lead = { ...newDm, ...extracted, intent, isNew: true };
+    const qualification = qualifyLead(text, intent);
+    const lead = {
+      ...newDm,
+      ...extracted,
+      intent,
+      score: qualification.score,
+      qualificationReason: qualification.reason,
+      route: qualification.route,
+      nextAction: qualification.nextAction,
+      followUp: qualification.followUp,
+      isNew: true,
+    };
 
     setLeads(prev => [lead, ...prev]);
-    setSheetRows(prev => [leadToRow(lead), ...prev]);
-    setLastReply({ text: buildAutoReply(name, intent), intent, name });
+    setSelectedLeadId(lead.id);
+    setLastReply({ text: buildAutoReply(name, intent), intent, name, route: qualification.route, nextAction: qualification.nextAction });
 
     toast(`✓ Lead captured — ${name} tagged as ${intent.toUpperCase()}`, 's');
     setProcessing(false);
@@ -241,7 +320,7 @@ export default function App() {
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" strokeWidth="2.5">
               <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 014.82 11.6a19.79 19.79 0 01-3.07-8.67A2 2 0 013.73 1h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L7.91 8.67a16 16 0 006.49 6.49l1.04-1.04a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
             </svg>
-            Lead<span className="dot">Bot</span> AI
+            Lead<span className="dot">Qual</span>ifier
           </div>
           <div className="nav-pill">
             <span className="status-dot" />
@@ -252,12 +331,12 @@ export default function App() {
         {/* ── Hero ── */}
         <div className="hero">
           <div className="hero-eyebrow">
-            <span>●</span> AI-Powered Lead Capture
+            <span>●</span> AI-Powered Lead Qualification
           </div>
-          <h1>Every DM Is a<br /><span>Lead. Don't Lose It.</span></h1>
+          <h1>Every DM Gets<br /><span>Qualified Instantly.</span></h1>
           <p>
             Our AI monitors your Instagram &amp; Twitter DMs 24/7, extracts contact details and buying intent,
-            logs everything to Google Sheets, and auto-replies so leads never go cold.
+            tags each lead as Hot, Warm, or Cold, and routes it into a live lead board for follow-up.
           </p>
 
           {/* Counter */}
@@ -355,7 +434,49 @@ export default function App() {
               <div className="section-title">🎯 Captured Leads</div>
               <span className="section-badge badge-green">{leads.length} total</span>
             </div>
-            <LeadsTable leads={leads} />
+            <LeadsTable leads={leads} selectedLeadId={selectedLeadId} onSelect={setSelectedLeadId} />
+          </div>
+        </div>
+
+        {/* ── Qualification panel ── */}
+        <div className="lead-detail-grid mt-8">
+          <div className="card" style={{ flex: 2 }}>
+            <div className="section-head">
+              <div className="section-title">🎯 Captured Leads</div>
+              <span className="section-badge badge-green">Select a lead</span>
+            </div>
+            <LeadsTable leads={leads} selectedLeadId={selectedLeadId} onSelect={setSelectedLeadId} />
+          </div>
+          <div className="card" style={{ flex: 1, minWidth: 320 }}>
+            <div className="section-head">
+              <div className="section-title">🧠 Lead Profile</div>
+              <span className="section-badge badge-cyan">Details</span>
+            </div>
+            <QualificationPanel lead={leads.find(l => l.id === selectedLeadId) || leads[0]} />
+            <div className="lead-action-panel">
+              <button
+                className="btn btn-cyan btn-block"
+                onClick={() => {
+                  const lead = leads.find(l => l.id === selectedLeadId) || leads[0];
+                  exportLeadToCSV(lead, `lead-${lead.name.replace(/\s+/g, '_').toLowerCase()}.csv`);
+                  toast('Exported selected lead to CSV', 's');
+                }}
+                disabled={!selectedLeadId}
+              >
+                Export lead CSV
+              </button>
+              <button
+                className="btn btn-outline btn-block"
+                onClick={() => {
+                  const lead = leads.find(l => l.id === selectedLeadId) || leads[0];
+                  pushLeadToCRM(lead);
+                  toast('Pushed selected lead to CRM stub', 's');
+                }}
+                disabled={!selectedLeadId}
+              >
+                Push to CRM
+              </button>
+            </div>
           </div>
         </div>
 
@@ -367,6 +488,7 @@ export default function App() {
               <IntentBadge intent={lastReply.intent} />
             </div>
             <div className="reply-preview" style={{ whiteSpace: 'pre-wrap' }}>{lastReply.text}</div>
+            <div className="mini-text mt-4">Route: {lastReply.route} · Next step: {lastReply.nextAction}</div>
             <p className="text-muted mt-4" style={{ fontSize: '.78rem' }}>
               This holding reply was sent instantly so the lead doesn't go cold while you're busy. The message is fully customisable per client.
             </p>
@@ -406,7 +528,7 @@ export default function App() {
 
       {/* ── Footer ── */}
       <footer className="footer">
-        <p>LeadBot AI — Demo Template · Built with ⚡ vibe-coding · &copy; {new Date().getFullYear()}</p>
+        <p>Lead Qualifier Agent — Demo Template · Built with ⚡ vibe-coding · &copy; {new Date().getFullYear()}</p>
       </footer>
 
       <Toasts list={toasts} />
