@@ -5,6 +5,8 @@ import {
   buildAutoReply, extractLead, leadToRow, conversionRate, qualifyLead, nowTime,
 } from './data.js';
 import { exportLeadToCSV, pushLeadToCRM } from './utils/exportCsv.js';
+import { syncLeadToSheet } from './utils/sheetsClient.js';
+import { notifySlackHotLead } from './utils/slackAlerts.js';
 
 /* ─── Toasts ─── */
 function useToasts() {
@@ -200,6 +202,67 @@ function QualificationPanel({ lead }) {
   );
 }
 
+const QUAL_QUESTIONS = [
+  { key: 'name', label: 'Lead name', prompt: 'What is the prospect’s name?' },
+  { key: 'need', label: 'Need / challenge', prompt: 'What problem are they asking you to solve?' },
+  { key: 'budget', label: 'Budget or price range', prompt: 'What budget or pricing expectation did they mention?' },
+  { key: 'timeline', label: 'Timeline', prompt: 'When do they need this resolved?' },
+];
+
+function QualificationWizard({
+  step,
+  answers,
+  input,
+  onChange,
+  onSubmit,
+  onReset,
+  processing,
+}) {
+  const question = QUAL_QUESTIONS[step];
+  if (!question) return null;
+
+  return (
+    <div className="qualification-wizard card mt-8">
+      <div className="section-head">
+        <div className="section-title">🧠 Lead Intake Wizard</div>
+        <span className="section-badge badge-amber">Multi-step</span>
+      </div>
+      <p className="text-muted" style={{ marginBottom: 14 }}>
+        Capture missing qualification details in a guided sequence, then review the lead summary before pushing to CRM.
+      </p>
+      <div className="wizard-step">
+        <div className="wizard-label">Step {step + 1} of {QUAL_QUESTIONS.length}</div>
+        <div className="wizard-prompt">{question.prompt}</div>
+        <input
+          className="sim-input"
+          placeholder={question.label}
+          value={input}
+          onChange={e => onChange(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && onSubmit()}
+        />
+        <div className="wizard-actions" style={{ marginTop: 12, display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+          <button className="btn btn-cyan" onClick={onSubmit} disabled={processing || !input.trim()}>
+            {processing ? 'Processing…' : step === QUAL_QUESTIONS.length - 1 ? 'Finish Intake' : 'Next'}
+          </button>
+          <button className="btn btn-outline" onClick={onReset} disabled={processing}>
+            Reset Wizard
+          </button>
+        </div>
+      </div>
+      <div className="wizard-summary" style={{ marginTop: 18, color: 'var(--text-2)' }}>
+        <strong>Current answers:</strong>
+        <ul style={{ marginTop: 8, paddingLeft: 18 }}>
+          {QUAL_QUESTIONS.map((q) => (
+            <li key={q.key}>
+              <strong>{q.label}:</strong> {answers[q.key] || '—'}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 /* ─── Main App ─── */
 const INIT_LEADS = SEED_DMS.map(d => ({
   ...d, intent: scoreIntent(d.text), isNew: false,
@@ -217,6 +280,10 @@ export default function App() {
   const [apiKey, setApiKey]         = useState('');
   const [showKey, setShowKey]       = useState(false);
   const [demoIdx, setDemoIdx]       = useState(0);
+  const [wizardStep, setWizardStep] = useState(0);
+  const [wizardAnswers, setWizardAnswers] = useState({ name: '', need: '', budget: '', timeline: '' });
+  const [wizardInput, setWizardInput] = useState('');
+  const [wizardResult, setWizardResult] = useState(null);
   const feedRef = useRef(null);
   const { list: toasts, add: toast } = useToasts();
 
@@ -255,6 +322,29 @@ export default function App() {
 
   const saveKey = (k) => { setApiKey(k); k ? localStorage.setItem('leadqualifier_key', k) : localStorage.removeItem('leadqualifier_key'); };
 
+  const resetWizard = () => {
+    setWizardStep(0);
+    setWizardAnswers({ name: '', need: '', budget: '', timeline: '' });
+    setWizardInput('');
+    setWizardResult(null);
+  };
+
+  const submitWizardStep = () => {
+    if (!wizardInput.trim()) return;
+    const currentKey = QUAL_QUESTIONS[wizardStep]?.key;
+    if (!currentKey) return;
+    const updatedAnswers = { ...wizardAnswers, [currentKey]: wizardInput.trim() };
+    setWizardAnswers(updatedAnswers);
+    setWizardInput('');
+    if (wizardStep === QUAL_QUESTIONS.length - 1) {
+      const summary = `Captured lead: ${updatedAnswers.name || 'Unknown'} — need: ${updatedAnswers.need || 'Unspecified'}; budget: ${updatedAnswers.budget || 'Unspecified'}; timeline: ${updatedAnswers.timeline || 'Unspecified'}.`;
+      setWizardResult({ summary, status: 'Ready for CRM push', data: updatedAnswers });
+      setWizardStep(wizardStep + 1);
+      return;
+    }
+    setWizardStep(step => step + 1);
+  };
+
   /* scroll DM feed to bottom */
   const scrollFeed = () => {
     setTimeout(() => { if (feedRef.current) feedRef.current.scrollTop = feedRef.current.scrollHeight; }, 50);
@@ -290,6 +380,19 @@ export default function App() {
     setLastReply({ text: buildAutoReply(name, intent), intent, name, route: qualification.route, nextAction: qualification.nextAction });
 
     toast(`✓ Lead captured — ${name} tagged as ${intent.toUpperCase()}`, 's');
+
+    // Sync to Google Sheets (non-blocking)
+    syncLeadToSheet(lead).then(result => {
+      if (result.ok) toast(`📊 ${result.message}`, 's');
+    });
+
+    // Alert Slack if hot lead (non-blocking)
+    if (intent === 'hot') {
+      notifySlackHotLead(lead).then(result => {
+        if (result.ok) toast(`🔔 ${result.message}`, 's');
+      });
+    }
+
     setProcessing(false);
   };
 
@@ -414,6 +517,68 @@ export default function App() {
             </button>
           </div>
         </div>
+
+        {/* ── Qualification Wizard ── */}
+        {wizardStep < QUAL_QUESTIONS.length && (
+          <QualificationWizard
+            step={wizardStep}
+            answers={wizardAnswers}
+            input={wizardInput}
+            onChange={setWizardInput}
+            onSubmit={submitWizardStep}
+            onReset={resetWizard}
+            processing={processing}
+          />
+        )}
+
+        {wizardResult && wizardStep >= QUAL_QUESTIONS.length && (
+          <div className="card mt-6">
+            <div className="section-head">
+              <div className="section-title">✅ Qualification Summary</div>
+              <span className="section-badge badge-green">Complete</span>
+            </div>
+            <p>{wizardResult.summary}</p>
+            <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
+              <button
+                className="btn btn-cyan"
+                onClick={() => {
+                  const lead = {
+                    id: Date.now(),
+                    name: wizardAnswers.name || 'Qualified Lead',
+                    platform: 'dm',
+                    text: wizardResult.summary,
+                    time: nowTime(),
+                    contact: '—',
+                    intent: 'warm',
+                    score: 72,
+                    qualificationReason: 'Qualified through guided intake',
+                    route: 'Sales nurture',
+                    nextAction: 'Follow up with tailored proposal',
+                    followUp: ['Send proposal', 'Book discovery call', 'Add to nurture sequence'],
+                  };
+                  setDms(prev => [lead, ...prev]);
+                  setLeads(prev => [lead, ...prev]);
+                  setSelectedLeadId(lead.id);
+                  syncLeadToSheet(lead).then(result => {
+                    if (result.ok) toast(`📊 ${result.message}`, 's');
+                  });
+                  if (lead.intent === 'hot') {
+                    notifySlackHotLead(lead).then(result => {
+                      if (result.ok) toast(`🔔 ${result.message}`, 's');
+                    });
+                  }
+                  setWizardResult(null);
+                  resetWizard();
+                }}
+              >
+                Add to Lead Board
+              </button>
+              <button className="btn btn-outline" onClick={resetWizard}>
+                Start New Intake
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* ── Two-col: DM Feed + Leads Table ── */}
         <div className="two-col mt-8">

@@ -69,7 +69,23 @@ export function buildAutoReply(clientName, intent) {
 const SYS = `Extract lead info from this DM text. Return ONLY valid JSON:
 {"name":"string","contact":"string or empty","intent":"hot|warm|cold","question":"string","summary":"1 sentence"}`;
 
+const BACKEND_URL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
+
 export async function extractLead(text, name, apiKey) {
+  try {
+    const res = await fetch(`${BACKEND_URL}/api/lead-qualifier/extract`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, name, apiKey })
+    });
+    if (res.ok) {
+      const payload = await res.json();
+      if (payload.ok && payload.data) return payload.data;
+    }
+  } catch (err) {
+    console.warn('Backend server unreachable, falling back to local extraction:', err);
+  }
+
   if (apiKey?.startsWith('sk-')) {
     try {
       const r = await fetch('https://api.openai.com/v1/chat/completions', {
