@@ -194,7 +194,7 @@ function QualificationPanel({ lead }) {
         </div>
       </div>
       <div className="automation-list">
-        {lead.followUp.map((item, idx) => (
+        {(lead.followUp || []).map((item, idx) => (
           <div key={idx} className="automation-item">▶ {item}</div>
         ))}
       </div>
@@ -265,7 +265,10 @@ function QualificationWizard({
 
 /* ─── Main App ─── */
 const INIT_LEADS = SEED_DMS.map(d => ({
-  ...d, intent: scoreIntent(d.text), isNew: false,
+  ...d,
+  intent: scoreIntent(d.text),
+  isNew: false,
+  ...qualifyLead(d.text),
 }));
 
 export default function App() {
